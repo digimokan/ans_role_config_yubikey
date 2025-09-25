@@ -1,0 +1,21 @@
+galaxy_info:
+  author: digimokan
+  description: "Install and configure YubiKey management utilities"
+  license: "MIT"
+  min_ansible_version: 2.7
+  platforms:
+    - name: Archlinux
+      versions:
+        - all
+    - name: Ubuntu
+      versions:
+        - all
+    - name: FreeBSD
+      versions:
+        - all
+  galaxy_tags:
+    - archlinux
+    - ubuntu
+    - freebsd
+    - yubikey
+
