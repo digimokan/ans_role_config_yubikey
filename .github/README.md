@@ -58,6 +58,7 @@ Install and configure YubiKey management utilities.
            name: ans_role_config_yubikey
            public: true
          vars:
+           yubikey_config_ssh_utility_script_cmd: "/usr/local/bin/do_ssh_client.sh"
            yubikey_user_name: "user2"
    ```
 
