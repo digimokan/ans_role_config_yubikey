@@ -1,0 +1,18 @@
+- name: "Run all role tasks for Ubuntu"
+  ansible.builtin.include_tasks: run_all_tasks.yml
+  vars:
+    yubikey_ykman_package_name: "{{ yubikey_ykman_ubuntu_package_name }}"
+  when: ansible_distribution == "Ubuntu"
+
+- name: "Run all role tasks for Arch Linux"
+  ansible.builtin.include_tasks: run_all_tasks.yml
+  vars:
+    yubikey_ykman_package_name: "{{ yubikey_ykman_archlinux_package_name }}"
+  when: ansible_os_family == "Archlinux"
+
+- name: "Run all role tasks for FreeBSD"
+  ansible.builtin.include_tasks: run_all_tasks.yml
+  vars:
+    yubikey_ykman_package_name: "{{ yubikey_ykman_freebsd_package_name }}"
+  when: ansible_os_family == "FreeBSD"
+

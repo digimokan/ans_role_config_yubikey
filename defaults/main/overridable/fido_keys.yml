@@ -1,0 +1,11 @@
+# when generating a new key on a FIDO device, use this key type
+# available key types: https://wiki.archlinux.org/title/SSH_keys#FIDO/U2F
+yubikey_default_fido_key_type: 'ed25519'
+
+# when generating a new key on a FIDO device, require device touch to use the key
+# Note: SSH server must support no-touch keys (as of Oct 2024, github requires touch)
+yubikey_default_fido_key_require_touch: true
+
+# when generating a new key on a FIDO device, require a PIN to use the key
+yubikey_default_fido_key_require_pin: true
+

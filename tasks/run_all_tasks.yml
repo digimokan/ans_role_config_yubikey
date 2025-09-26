@@ -1,0 +1,6 @@
+- name: "Install the YubiKey ykman utility"
+  ansible.builtin.include_tasks: install/main.yml
+
+- name: "Configure YubiKey utilities"
+  ansible.builtin.include_tasks: configure/main.yml
+

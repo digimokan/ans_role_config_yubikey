@@ -1,0 +1,6 @@
+# command to execute to run ykman, the official YubiKey utility
+yubikey_ykman_main_cmd: 'ykman'
+
+# command to execute to run the YubiKey utility script (provided by this role)
+yubikey_utility_script_cmd: 'do_yubikey.sh'
+

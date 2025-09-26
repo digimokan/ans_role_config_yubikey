@@ -1,0 +1,389 @@
+#!/bin/sh
+# vim: set filetype=sh:
+
+################################################################################
+# Purpose:   Provide helper script for YubiKey functionality
+# Args/Opts: See usage (run with -h option).
+# Meta:      Script installed by ansible {{ role_name | basename }}.
+# Style:     ENV_VAR, GLOBAL_VAR, GLOBAL_READONLY_VAR, func_local_var, my_func
+################################################################################
+
+# GLOBAL VARS:
+
+# Constants
+
+# ssh utility script constants
+DO_SSH_CLIENT_SCRIPT_CMD='{{ yubikey_config_ssh_utility_script_cmd }}'
+readonly DO_SSH_CLIENT_SCRIPT_CMD
+DEFAULT_KEY_TYPE='{{ yubikey_default_fido_key_type }}'
+readonly DEFAULT_KEY_TYPE
+
+# local script constants
+PROG_NAME="$(basename "${0}")"
+readonly PROG_NAME
+
+# Mutable User Cmd Option Selections
+
+# ssh utility script user cmd options
+LIST_USER_KEYPAIRS='false'
+LIST_FIDO_DEVICE_KEYPAIRS='false'
+IMPORT_REFS_TO_FIDO_DEVICE_KEYPAIRS='false'
+CREATE_KEYPAIR_ON_FIDO_DEVICE='false'
+DELETE_USER_KEYPAIR='false'
+DELETE_ALL_USER_KEYPAIRS='false'
+FIDO_TOUCH_REQUIRED='{{ yubikey_default_fido_key_require_touch }}'
+FIDO_PIN_REQUIRED='{{ yubikey_default_fido_key_require_pin }}'
+KEY_TYPE="${DEFAULT_KEY_TYPE}"
+DELETE_KEYPAIRS_NOT_ON_FIDO_DEVICE='false'
+
+# local script user cmd options
+PRINT_HELP_MENU='false'
+
+# LOCAL FUNCTIONS:
+
+print_usage() {
+  prog_name_num_chars="$(printf "%s" "${PROG_NAME}" | wc -m)"
+  leading_indent=''
+  i=0
+  while [ "${i}" -lt "${prog_name_num_chars}" ]; do
+    leading_indent="${leading_indent} "
+    i=$((i + 1))
+  done
+
+  printf "USAGE:\n"
+  printf "  %s  -h\n" "${PROG_NAME}"
+  printf "  %s  -l\n" "${PROG_NAME}"
+  printf "  %s  -m\n" "${PROG_NAME}"
+  printf "  %s  -i  [-D]\n" "${PROG_NAME}"
+  printf "  %s  -k <key_descrip>  [-U]  [-P]    [-K <key_type>]\n" "${PROG_NAME}"
+  printf "  %s  -d <key_filename>\n" "${PROG_NAME}"
+  printf "  %s  --delete-all-user-keypairs\n" "${PROG_NAME}"
+  printf "OPTIONS:\n"
+  printf "  -h, --help\n"
+  printf "      print this help message\n"
+  printf "  -l, --list-user-keypairs\n"
+  printf "      list keypairs in user's ~/.ssh dir (including '_sk' refs to keys on FIDO device)\n"
+  printf "  -m, --list-fido-device-keypairs\n"
+  printf "      list keypairs on attached FIDO device\n"
+  printf "  -i, --import-refs-to-fido-device-keypairs\n"
+  printf "      in user's ~/.ssh dir, create refs to all keys on attached FIDO device\n"
+  printf "  -k <key_descrip>, --create-keypair-on-fido-device=<key_descrip>\n"
+  printf "      create a new keypair on attached FIDO device (key_descrip format: 'service_username')\n"
+  printf "  -d <key_filename>, --delete-user-keypair=<key_filename>\n"
+  printf "      delete a (normal) keypair from user's ~/.ssh dir (do not specify '.pub' extension)\n"
+  printf "  --delete-all-user-keypairs\n"
+  printf "      delete all (normal) keypairs from user's ~/.ssh dir\n"
+  printf "  -U, --no-fido-touch-required\n"
+  printf "      do not require a key-touch to use the created key (by default, it's required)\n"
+  printf "  -P, --no-fido-pin-required\n"
+  printf "      do not require a PIN to use the created key (by default, it's required)\n"
+  printf "  -K <key_type>, --key-type=<key_type>\n"
+  printf "      specify type of key to create: %s (default), ecdsa\n" "${DEFAULT_KEY_TYPE}"
+  printf "  -D, --delete-keypairs-not-on-fido-device\n"
+  printf "      delete any keypairs in user's ~/.ssh dir that are not on attached FIDO device\n"
+  printf "EXIT CODES:\n"
+  printf "    0  ok\n"
+  printf "    1  ok, new and/or updated keypairs copied from FIDO device\n"
+  printf "    5  usage, arguments, or options error\n"
+  printf "    7  key list error\n"
+  printf "   10  key creation error\n"
+  printf "   15  key deletion error\n"
+  printf "   25  key import error\n"
+  printf "  127  ssh utility script error\n"
+  printf "  255  unknown error\n"
+}
+
+get_cmd_opts() {
+  while getopts ':hlmik:d:UPK:D-:' option; do
+    short_opt_arg="${OPTARG}"
+    case "${option}" in
+      h)  handle_print_help_menu ;;
+      l)  handle_list_user_keypairs ;;
+      m)  handle_list_fido_device_keypairs ;;
+      i)  handle_import_refs_to_fido_device_keypairs ;;
+      k)  handle_create_keypair_on_fido_device "${short_opt_arg}" ;;
+      d)  handle_delete_user_keypair "${short_opt_arg}" ;;
+      U)  handle_no_fido_touch_required ;;
+      P)  handle_no_fido_pin_required ;;
+      K)  handle_key_type "${short_opt_arg}" ;;
+      D)  handle_delete_keypairs_not_on_fido_device ;;
+      -)  long_opt_name="${OPTARG}"
+          long_opt_arg="${OPTARG#*=}"
+          case ${long_opt_name} in
+            help)                                   handle_print_help_menu ;;
+            help=*)                                 handle_illegal_long_option_arg "${long_opt_name}" ;;
+            list-user-keypairs)                     handle_list_user_keypairs ;;
+            list-user-keypairs=*)                   handle_illegal_long_option_arg "${long_opt_name}" ;;
+            list-fido-device-keypairs)              handle_list_fido_device_keypairs ;;
+            list-fido-device-keypairs=*)            handle_illegal_long_option_arg "${long_opt_name}" ;;
+            import-refs-to-fido-device-keypairs)    handle_import_refs_to_fido_device_keypairs ;;
+            import-refs-to-fido-device-keypairs=*)  handle_illegal_long_option_arg "${long_opt_name}" ;;
+            create-keypair-on-fido-device=?*)       handle_create_keypair_on_fido_device "${long_opt_arg}" ;;
+            create-keypair-on-fido-device*)         handle_missing_long_option_arg "${long_opt_name}" ;;
+            delete-user-keypair=?*)                 handle_delete_user_keypair "${long_opt_arg}" ;;
+            delete-user-keypair*)                   handle_missing_long_option_arg "${long_opt_name}" ;;
+            delete-all-user-keypairs)               handle_delete_all_user_keypairs ;;
+            delete-all-user-keypairs=*)             handle_illegal_long_option_arg "${long_opt_name}" ;;
+            no-fido-touch-required)                 handle_no_fido_touch_required ;;
+            no-fido-touch-required=*)               handle_illegal_long_option_arg "${long_opt_name}" ;;
+            no-fido-pin-required)                   handle_no_fido_pin_required ;;
+            no-fido-pin-required=*)                 handle_illegal_long_option_arg "${long_opt_name}" ;;
+            key-type=?*)                            handle_key_type "${long_opt_arg}" ;;
+            key-type*)                              handle_missing_long_option_arg "${long_opt_name}" ;;
+            delete-keypairs-not-on-fido-device)     handle_delete_keypairs_not_on_fido_device ;;
+            delete-keypairs-not-on-fido-device=*)   handle_illegal_long_option_arg "${long_opt_name}" ;;
+            '')                                     break ;; # non-option arg starting with '-'
+            *)                                      handle_unknown_option "${long_opt_name}" ;;
+          esac ;;
+      \?) handle_unknown_option "${short_opt_arg}" ;;
+    esac
+  done
+}
+
+exit_with_cleanup() {
+  err_code="${1}"
+  exit "${err_code}"
+}
+
+print_err_msg() {
+  err_msg="${1}"
+  printf "ERROR:\n%s: %s\n" "${PROG_NAME}" "${err_msg}"
+}
+
+quit_with_err_msg() {
+  err_msg="${1}"
+  err_code="${2}"
+  print_err_msg "${err_msg}"
+  exit_with_cleanup "${err_code}"
+}
+
+quit_if_rc_not_zero() {
+  cmd_exit_code="${1}"
+  err_msg="${2}"
+  script_exit_code="${3}"
+  if [ "${cmd_exit_code}" != 0  ]; then
+    quit_with_err_msg "${err_msg}" "${script_exit_code}"
+  fi
+}
+
+try_silent_with_exit() {
+  cmd="${1}"
+  err_msg="${2}"
+  err_code="${3}"
+
+  eval "${cmd}"
+  exit_code="${?}"
+  if [ "${exit_code}" != 0 ]; then
+    quit_with_err_msg "${err_msg}" "${err_code}"
+  fi
+}
+
+handle_unknown_option() {
+  short_opt_letter_or_long_opt_name="${1}"
+  err_msg="unknown option \"${short_opt_letter_or_long_opt_name}\""
+  quit_with_err_msg "${err_msg}" 5
+}
+
+handle_illegal_long_option_arg() {
+  long_opt_name="${1}"
+  err_msg="illegal argument in \"${long_opt_name}\""
+  quit_with_err_msg "${err_msg}" 5
+}
+
+handle_missing_long_option_arg() {
+  long_opt_name="${1}"
+  err_msg="missing argument for option \"${long_opt_name}\""
+  quit_with_err_msg "${err_msg}" 5
+}
+
+handle_print_help_menu() {
+  if [ "${LIST_USER_KEYPAIRS}" = 'true' ] || \
+     [ "${LIST_FIDO_DEVICE_KEYPAIRS}" = 'true' ] || \
+     [ "${IMPORT_REFS_TO_FIDO_DEVICE_KEYPAIRS}" = 'true' ] || \
+     [ "${CREATE_KEYPAIR_ON_FIDO_DEVICE}" = 'true' ] || \
+     [ "${DELETE_USER_KEYPAIR}" = 'true' ] || \
+     [ "${DELETE_ALL_USER_KEYPAIRS}" = 'true' ]; then
+    quit_with_err_msg "mutually exclusive options selected" 5
+  fi
+  PRINT_HELP_MENU='true'
+}
+
+handle_list_user_keypairs() {
+  if [ "${PRINT_HELP_MENU}" = 'true' ] || \
+     [ "${LIST_FIDO_DEVICE_KEYPAIRS}" = 'true' ] || \
+     [ "${IMPORT_REFS_TO_FIDO_DEVICE_KEYPAIRS}" = 'true' ] || \
+     [ "${CREATE_KEYPAIR_ON_FIDO_DEVICE}" = 'true' ] || \
+     [ "${DELETE_USER_KEYPAIR}" = 'true' ] || \
+     [ "${DELETE_ALL_USER_KEYPAIRS}" = 'true' ]; then
+    quit_with_err_msg "mutually exclusive options selected" 5
+  fi
+  LIST_USER_KEYPAIRS='true'
+}
+
+handle_list_fido_device_keypairs() {
+  if [ "${PRINT_HELP_MENU}" = 'true' ] || \
+     [ "${LIST_USER_KEYPAIRS}" = 'true' ] || \
+     [ "${IMPORT_REFS_TO_FIDO_DEVICE_KEYPAIRS}" = 'true' ] || \
+     [ "${CREATE_KEYPAIR_ON_FIDO_DEVICE}" = 'true' ] || \
+     [ "${DELETE_USER_KEYPAIR}" = 'true' ] || \
+     [ "${DELETE_ALL_USER_KEYPAIRS}" = 'true' ]; then
+    quit_with_err_msg "mutually exclusive options selected" 5
+  fi
+  LIST_FIDO_DEVICE_KEYPAIRS='true'
+}
+
+handle_import_refs_to_fido_device_keypairs() {
+  if [ "${PRINT_HELP_MENU}" = 'true' ] || \
+     [ "${LIST_USER_KEYPAIRS}" = 'true' ] || \
+     [ "${LIST_FIDO_DEVICE_KEYPAIRS}" = 'true' ] || \
+     [ "${CREATE_KEYPAIR_ON_FIDO_DEVICE}" = 'true' ] || \
+     [ "${DELETE_USER_KEYPAIR}" = 'true' ] || \
+     [ "${DELETE_ALL_USER_KEYPAIRS}" = 'true' ]; then
+    quit_with_err_msg "mutually exclusive options selected" 5
+  fi
+  IMPORT_REFS_TO_FIDO_DEVICE_KEYPAIRS='true'
+}
+
+handle_create_keypair_on_fido_device() {
+  if [ "${PRINT_HELP_MENU}" = 'true' ] || \
+     [ "${LIST_USER_KEYPAIRS}" = 'true' ] || \
+     [ "${LIST_FIDO_DEVICE_KEYPAIRS}" = 'true' ] || \
+     [ "${IMPORT_REFS_TO_FIDO_DEVICE_KEYPAIRS}" = 'true' ] || \
+     [ "${DELETE_USER_KEYPAIR}" = 'true' ] || \
+     [ "${DELETE_ALL_USER_KEYPAIRS}" = 'true' ]; then
+    quit_with_err_msg "mutually exclusive options selected" 5
+  fi
+  KEY_DESCRIP="${1}"
+  CREATE_KEYPAIR_ON_FIDO_DEVICE='true'
+}
+
+handle_delete_user_keypair() {
+  if [ "${PRINT_HELP_MENU}" = 'true' ] || \
+     [ "${LIST_USER_KEYPAIRS}" = 'true' ] || \
+     [ "${LIST_FIDO_DEVICE_KEYPAIRS}" = 'true' ] || \
+     [ "${IMPORT_REFS_TO_FIDO_DEVICE_KEYPAIRS}" = 'true' ] || \
+     [ "${CREATE_KEYPAIR_ON_FIDO_DEVICE}" = 'true' ] || \
+     [ "${DELETE_ALL_USER_KEYPAIRS}" = 'true' ]; then
+    quit_with_err_msg "mutually exclusive options selected" 5
+  fi
+  KEY_FILENAME="${1}"
+  DELETE_USER_KEYPAIR='true'
+}
+
+handle_delete_all_user_keypairs() {
+  if [ "${PRINT_HELP_MENU}" = 'true' ] || \
+     [ "${LIST_USER_KEYPAIRS}" = 'true' ] || \
+     [ "${LIST_FIDO_DEVICE_KEYPAIRS}" = 'true' ] || \
+     [ "${IMPORT_REFS_TO_FIDO_DEVICE_KEYPAIRS}" = 'true' ] || \
+     [ "${CREATE_KEYPAIR_ON_FIDO_DEVICE}" = 'true' ] || \
+     [ "${DELETE_USER_KEYPAIR}" = 'true' ]; then
+    quit_with_err_msg "mutually exclusive options selected" 5
+  fi
+  DELETE_ALL_USER_KEYPAIRS='true'
+}
+
+handle_no_fido_touch_required() {
+  FIDO_TOUCH_REQUIRED='false'
+}
+
+handle_no_fido_pin_required() {
+  FIDO_PIN_REQUIRED='false'
+}
+
+handle_key_type() {
+  KEY_TYPE="${1}"
+}
+
+handle_delete_keypairs_not_on_fido_device() {
+  DELETE_KEYPAIRS_NOT_ON_FIDO_DEVICE='true'
+}
+
+do_print_help_menu() {
+  print_usage
+}
+
+# call out to ssh utility script
+do_list_user_keypairs() {
+  "${DO_SSH_CLIENT_SCRIPT_CMD}" --list-user-keypairs
+  quit_if_rc_not_zero "${?}" "ssh utility script err with --list-user-keypairs" 127
+}
+
+# call out to ssh utility script
+do_list_fido_device_keypairs() {
+  "${DO_SSH_CLIENT_SCRIPT_CMD}" --list-fido-device-keypairs
+  quit_if_rc_not_zero "${?}" "ssh utility script err with --list-fido-device-keypairs" 127
+}
+
+# call out to ssh utility script
+do_import_refs_to_fido_device_keypairs() {
+  if [ "${DELETE_KEYPAIRS_NOT_ON_FIDO_DEVICE}" = 'true' ]; then
+    delete_keypairs_opt="--delete-keypairs-not-on-fido-device"
+  else
+    delete_keypairs_opt=""
+  fi
+
+  "${DO_SSH_CLIENT_SCRIPT_CMD}" --import-refs-to-fido-device-keypairs "${delete_keypairs_opt}"
+  quit_if_rc_not_zero "${?}" "ssh utility script err with --import-refs-to-fido-device-keypairs" 127
+}
+
+# call out to ssh utility script
+do_create_keypair_on_fido_device() {
+  if [ "${FIDO_TOUCH_REQUIRED}" = 'true' ]; then
+    fido_touch_opt="--no-fido-touch-required"
+  else
+    fido_touch_opt=""
+  fi
+
+  if [ "${FIDO_PIN_REQUIRED}" = 'true' ]; then
+    fido_pin_opt="--no-fido-pin-required"
+  else
+    fido_pin_opt=""
+  fi
+
+  "${DO_SSH_CLIENT_SCRIPT_CMD}" --create-keypair-on-fido-device="${KEY_DESCRIP}" \
+    "${fido_touch_opt}" \
+    "${fido_pin_opt}" \
+    --key-type="${KEY_TYPE}"
+  quit_if_rc_not_zero "${?}" "ssh utility script err with --create-keypair-on-fido-device" 127
+}
+
+# call out to ssh utility script
+do_delete_user_keypair() {
+  "${DO_SSH_CLIENT_SCRIPT_CMD}" --delete-user-keypair="${KEY_FILENAME}"
+  quit_if_rc_not_zero "${?}" "ssh utility script err with --delete-user-keypair" 127
+}
+
+# call out to ssh utility script
+do_delete_all_user_keypairs() {
+  "${DO_SSH_CLIENT_SCRIPT_CMD}" --delete-all-user-keypairs
+  quit_if_rc_not_zero "${?}" "ssh utility script err with --delete-all-user-keypairs" 127
+}
+
+# MAIN SCRIPT:
+
+main() {
+  get_cmd_opts "$@"
+
+  if [ "${PRINT_HELP_MENU}" = 'true' ]; then
+    do_print_help_menu
+  elif [ "${LIST_USER_KEYPAIRS}" = 'true' ]; then
+    do_list_user_keypairs
+  elif [ "${LIST_FIDO_DEVICE_KEYPAIRS}" = 'true' ]; then
+    do_list_fido_device_keypairs
+  elif [ "${IMPORT_REFS_TO_FIDO_DEVICE_KEYPAIRS}" = 'true' ]; then
+    do_import_refs_to_fido_device_keypairs
+  elif [ "${CREATE_KEYPAIR_ON_FIDO_DEVICE}" = 'true' ]; then
+    do_create_keypair_on_fido_device
+  elif [ "${DELETE_USER_KEYPAIR}" = 'true' ]; then
+    do_delete_user_keypair
+  elif [ "${DELETE_ALL_USER_KEYPAIRS}" = 'true' ]; then
+    do_delete_all_user_keypairs
+  else
+    quit_with_err_msg "no valid option selected" 5
+  fi
+
+  exit_with_cleanup 0
+}
+
+main "$@"
+

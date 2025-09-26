@@ -1,0 +1,7 @@
+# user name of main YubiKey user
+yubikey_user_name: "user2"
+
+# this role depends on digimokan/ans_role_config_openssh_client utility script,
+# or a similar script that has the same options and behavior
+yubikey_config_ssh_utility_script_cmd: "false"
+

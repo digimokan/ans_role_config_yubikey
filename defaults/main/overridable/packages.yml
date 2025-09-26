@@ -1,0 +1,5 @@
+# YubiKey Manager packages
+yubikey_ykman_ubuntu_package_name: 'yubikey-manager'
+yubikey_ykman_archlinux_package_name: 'yubikey-manager'
+yubikey_ykman_freebsd_package_name: 'security/py-yubikey-manager'
+

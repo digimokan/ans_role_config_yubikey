@@ -1,0 +1,7 @@
+- name: "Install the '{{ yubikey_ykman_package_name }}' package"
+  ansible.builtin.package:
+    name: "{{ yubikey_ykman_package_name }}"
+    state: present
+  become: true
+  become_user: root
+
